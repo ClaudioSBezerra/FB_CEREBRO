@@ -501,6 +501,7 @@ func main() {
 	http.HandleFunc("/cobertura-email", withCORS(coberturaEmailHandler))
 	http.HandleFunc("/faturado-fornecedor-email", withCORS(faturadoFornecedorEmailHandler))
 	http.HandleFunc("/objetivos-industria-email", withCORS(objetivosIndustriaEmailHandler))
+	http.HandleFunc("/enviar-email", withCORS(enviarEmailHandler))
 	http.HandleFunc("/health", healthHandler)
 
 	port := os.Getenv("PORT")

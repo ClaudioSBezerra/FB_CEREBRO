@@ -39,6 +39,7 @@ Todas (exceto `/painel` e `/health`) exigem `Authorization: Bearer <API_TOKEN>`.
 | `GET /faturado-fornecedor?all=true` | faturado ano×ano por fornecedor (JSON) |
 | `GET /faturado-fornecedor-email?email=` | monta e envia o painel de Faturado por e-mail |
 | `GET /objetivos-industria-email?industria=&periodo=&email=&fluxo=` | repassa pro FB_FAROL (`/api/farol-jc/objetivos-industria-email`) |
+| `POST /enviar-email` `{email, assunto, corpo_html, corpo_texto}` | envio genérico de e-mail, pra agentes sem painel próprio (ex: resumo diário do "Monitor do CEO") — só entrega pra destinatário na allowlist `EMAILS_PERMITIDOS` |
 | `GET /painel` | dashboard HTML ao vivo, sem auth (link direto) |
 | `GET /health` | health-check, sem auth |
 
@@ -51,6 +52,7 @@ Todas (exceto `/painel` e `/health`) exigem `Authorization: Bearer <API_TOKEN>`.
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | sim, pras rotas `*-email` | mesma conta Hostinger já usada pelo FB_FAROL |
 | `FAROL_BASE_URL` | não (default `https://farol.fbtax.cloud`) | base do FB_FAROL pro proxy de Objetivos por Indústria |
 | `FAROL_GATEWAY_TOKEN` | sim, pra `/objetivos-industria-email` | token PRÓPRIO deste serviço pra chamar o FB_FAROL — **precisa ser criado e cadastrado como `FAROL_GATEWAY_TOKEN` também no FB_FAROL** (env var separada de `FAROL_MCP_TOKEN`, ver AD-6 da espinha) |
+| `EMAILS_PERMITIDOS` | sim, pra `/enviar-email` | lista de destinatários autorizados pro envio genérico, separados por vírgula (ex: `claudio.bezerra@ferreiracosta.com.br,jose.costa@ferreiracosta.com.br`) — sem essa trava, o `API_TOKEN` vazado viraria relay de e-mail pra qualquer destinatário |
 | `PORT` | não (default `8090`) | porta HTTP |
 
 ## Testes
@@ -59,35 +61,14 @@ Todas (exceto `/painel` e `/health`) exigem `Authorization: Bearer <API_TOKEN>`.
 go test ./...
 ```
 
-16 testes, sem banco nem rede real (AD-9 da espinha) — a lógica pura
-(formatação de e-mail, montagem de HTML, parsing de parâmetros) é
-validada sem infraestrutura nenhuma.
+27 testes, sem banco nem rede real (AD-9 da espinha) — a lógica pura
+(formatação de e-mail, montagem de HTML, parsing de parâmetros, allowlist)
+é validada sem infraestrutura nenhuma.
 
-## Deploy (pendente — precisa de ação humana, ver abaixo)
+## Deploy
 
-Este repo está pronto (código, testes, Dockerfile validado localmente
-com `docker build .` rodando vet+test+build), mas **falta**:
-
-1. **Criar o repositório no GitHub** (`ClaudioSBezerra/FB_CEREBRO`,
-   vazio, sem README/licença — já tem tudo aqui). Não consegui fazer
-   isso sozinho nesta sessão (só tenho a chave SSH que empurra pra repo
-   já existente, não autenticação pra criar um novo).
-   ```
-   git remote add origin git@github.com:ClaudioSBezerra/FB_CEREBRO.git
-   git push -u origin main
-   ```
-2. **Criar o app no Coolify** (git-based, apontando pro repo acima) —
-   mesma forma que o `farol-api` já está configurado.
-3. **Cadastrar as env vars** da tabela acima no novo app Coolify —
-   reaproveitar os mesmos valores de `DATABASE_URL`/`API_TOKEN`/`SMTP_*`
-   que já existem no processo manual antigo, e gerar um `FAROL_GATEWAY_TOKEN`
-   novo (`openssl rand -hex 32`).
-4. **Cadastrar esse mesmo `FAROL_GATEWAY_TOKEN`** no serviço `api` do
-   FB_FAROL (Coolify), pra ele aceitar a chamada deste Gateway (o código
-   do lado FB_FAROL pra isso já foi commitado e pusheado — só falta a
-   env var).
-5. Seguir o plano de corte (AD-10 da espinha): subir o novo app Coolify
-   numa porta/rota alternativa primeiro, validar, só então trocar o
-   rótulo Traefik de `cerebro-jc-api.fbtechia.com` pro novo container, e
-   manter o processo manual antigo **parado, não removido**, por um
-   tempo de segurança antes de descartar.
+Rodando em produção via Coolify (docker-compose), deploy automático a
+partir do `main` (webhook do GitHub configurado). Pra adicionar uma env
+var nova (ex: `EMAILS_PERMITIDOS`), cadastrar no app Coolify e redeployar
+— o `docker-compose.yml` já repassa qualquer `${VAR}` referenciada nele
+pro container.

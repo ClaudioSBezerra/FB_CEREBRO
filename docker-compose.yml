@@ -40,4 +40,5 @@ services:
       - SMTP_FROM=${SMTP_FROM}
       - FAROL_BASE_URL=${FAROL_BASE_URL}
       - FAROL_GATEWAY_TOKEN=${FAROL_GATEWAY_TOKEN}
+      - EMAILS_PERMITIDOS=${EMAILS_PERMITIDOS}
     restart: unless-stopped
