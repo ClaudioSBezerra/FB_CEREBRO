@@ -12,6 +12,21 @@ espinha) pros painéis de Cobertura e Faturado por Fornecedor, e repassa
 (proxy HTTP puro, nunca recalcula) pro FB_FAROL o painel de Objetivos por
 Indústria.
 
+**Cobertura é servida de um snapshot em memória**, não ao vivo: a query
+de Cobertura/Resumo varre 2 anos de `vendas_faturadas`/`vendas_transmitidas`
+sem filtro de data (precisa do histórico inteiro pra saber "há quantos
+dias o cliente não compra"), o que a torna lenta demais pra responder por
+request (confirmado em produção: 40s+ de I/O real). Como este serviço só
+tem acesso de **leitura** ao Postgres (`cerebro_readonly`), não dá pra
+persistir um snapshot em tabela nova — por isso o cache vive na memória
+do processo (`cache_cobertura.go`): recalculado no boot e depois 1x por
+dia, servindo "a fotografia de ontem" instantaneamente pras rotas
+`/resumo`, `/cobertura` e `/cobertura-email`. Mesmo princípio já usado
+por Faturado por Fornecedor (lê `agg_fat_v01_l0_mes`, pré-agregado) e por
+Objetivos por Indústria (proxy pro snapshot diário do FAROL). Enquanto o
+snapshot inicial não termina de carregar (alguns segundos após o boot),
+essas 3 rotas respondem `503` em vez de servir dado zerado.
+
 ## Rotas
 
 Todas (exceto `/painel` e `/health`) exigem `Authorization: Bearer <API_TOKEN>`.

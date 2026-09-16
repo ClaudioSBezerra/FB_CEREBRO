@@ -28,10 +28,11 @@ type Cobertura struct {
 }
 
 type Resumo struct {
-	TotalClientes int `json:"total_clientes"`
-	TotalRcas     int `json:"total_rcas"`
-	TotalCritico  int `json:"total_critico"`
-	TotalAtencao  int `json:"total_atencao"`
+	TotalClientes int    `json:"total_clientes"`
+	TotalRcas     int    `json:"total_rcas"`
+	TotalCritico  int    `json:"total_critico"`
+	TotalAtencao  int    `json:"total_atencao"`
+	AtualizadoEm  string `json:"atualizado_em,omitempty"`
 }
 
 type FornecedorRow struct {
@@ -226,12 +227,13 @@ func resumoHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	res, err := buscarResumo(context.Background())
-	if err != nil {
-		log.Println("resumo query error:", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+	snap := obterCoberturaSnapshot()
+	if snap.AtualizadoEm.IsZero() {
+		writeJSONErro(w, http.StatusServiceUnavailable, "snapshot de cobertura ainda carregando, tente novamente em instantes")
 		return
 	}
+	res := snap.Resumo
+	res.AtualizadoEm = snap.AtualizadoEm.Format(time.RFC3339)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(res)
 }
@@ -254,14 +256,14 @@ func coberturaHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	supervisor := r.URL.Query().Get("supervisor")
-	limit := limiteDaQuery(r, 100, 1_000_000)
-	results, err := buscarCobertura(context.Background(), supervisor, limit)
-	if err != nil {
-		log.Println("query error:", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+	snap := obterCoberturaSnapshot()
+	if snap.AtualizadoEm.IsZero() {
+		writeJSONErro(w, http.StatusServiceUnavailable, "snapshot de cobertura ainda carregando, tente novamente em instantes")
 		return
 	}
+	supervisor := r.URL.Query().Get("supervisor")
+	limit := limiteDaQuery(r, 100, 1_000_000)
+	results := filtrarPorSupervisorELimit(snap.Linhas, supervisor, limit)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(results)
 }
@@ -280,20 +282,15 @@ func coberturaEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	supervisor := r.URL.Query().Get("supervisor")
-	ctx := context.Background()
 
-	res, err := buscarResumo(ctx)
-	if err != nil {
-		log.Println("resumo query error:", err)
-		writeJSONErro(w, http.StatusInternalServerError, "erro buscando resumo")
+	snap := obterCoberturaSnapshot()
+	if snap.AtualizadoEm.IsZero() {
+		writeJSONErro(w, http.StatusServiceUnavailable, "snapshot de cobertura ainda carregando, tente novamente em instantes")
 		return
 	}
-	linhas, err := buscarCobertura(ctx, supervisor, 1_000_000)
-	if err != nil {
-		log.Println("cobertura query error:", err)
-		writeJSONErro(w, http.StatusInternalServerError, "erro buscando cobertura")
-		return
-	}
+	res := snap.Resumo
+	res.AtualizadoEm = snap.AtualizadoEm.Format(time.RFC3339)
+	linhas := filtrarPorSupervisorELimit(snap.Linhas, supervisor, 1_000_000)
 
 	assunto, texto, htmlBody := construirEmailCobertura(res, linhas, supervisor)
 	if err := sendHTMLReport([]string{email}, assunto, texto, htmlBody); err != nil {
@@ -494,6 +491,8 @@ func main() {
 		log.Fatal("erro conectando ao banco: ", err)
 	}
 	defer pool.Close()
+
+	iniciarAtualizacaoPeriodicaCobertura()
 
 	http.HandleFunc("/cobertura", withCORS(coberturaHandler))
 	http.HandleFunc("/resumo", withCORS(resumoHandler))
