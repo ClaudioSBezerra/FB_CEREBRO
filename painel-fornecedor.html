@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Faturado por Fornecedor — JC Distribuição</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --border:    #21262d;
+    --text:      #e6edf3;
+    --muted:     #7d8590;
+    --accent:    #1f6feb;
+    --green:     #3fb950;
+    --yellow:    #d29922;
+    --orange:    #e3710a;
+    --red:       #f85149;
+    --total-bg:  #1c2128;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 13px;
+  }
+
+  /* ── Header ── */
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding: 20px 32px 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .header-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    flex: 1;
+  }
+  .period-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .period-badge strong { color: var(--text); font-weight: 500; }
+  .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--border); }
+  .ts {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 3px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  /* ── Summary cards ── */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .card {
+    background: var(--surface);
+    padding: 18px 24px;
+  }
+  .card-label {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .card-value {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .card-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  /* ── Table ── */
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+
+  thead th {
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    padding: 10px 12px;
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  thead th:first-child { text-align: left; min-width: 220px; padding-left: 32px; }
+  thead .group-header {
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    font-size: 9px;
+    letter-spacing: .1em;
+    padding: 6px 12px;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background .1s;
+  }
+  tbody tr:hover { background: rgba(31,111,235,.05); }
+  tbody tr.total-row {
+    background: var(--total-bg);
+    border-top: 2px solid var(--border);
+    border-bottom: 2px solid var(--border);
+  }
+  tbody tr.total-row td { font-weight: 600; }
+
+  td {
+    padding: 9px 12px;
+    text-align: right;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  td:first-child {
+    text-align: left;
+    padding-left: 32px;
+    color: var(--text);
+    font-weight: 500;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  td.cod {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    padding-right: 4px;
+  }
+
+  .pct {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    font-weight: 600;
+    font-size: 12px;
+    min-width: 44px;
+  }
+  .pct.g100 { color: var(--green); }
+  .pct.g80  { color: var(--yellow); }
+  .pct.g70  { color: var(--orange); }
+  .pct.low  { color: var(--red); }
+
+  .mix {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  .num { color: var(--muted); font-size: 12px; }
+
+  /* ── States ── */
+  .state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: var(--muted);
+    font-size: 13px;
+    gap: 10px;
+  }
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error { color: var(--red); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="brand">JC Distribuição</span>
+  <span class="header-title">Faturado por Fornecedor</span>
+  <div class="period-badge">
+    <strong>ANO × ANO</strong>
+    <div class="dot"></div>
+    <span>2025 (365 dias) vs 2026 (247 dias)</span>
+    <div class="dot"></div>
+    <span class="ts" id="ts">—</span>
+  </div>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="table-wrap">
+  <div class="state" id="state">
+    <div class="spinner"></div>
+    <span>Buscando dados...</span>
+  </div>
+  <table id="tbl" style="display:none">
+    <thead>
+      <tr class="group-header">
+        <th rowspan="2" style="text-align:left;padding-left:32px">FORNECEDOR</th>
+        <th colspan="3" class="group-header">VENDA</th>
+        <th colspan="4" class="group-header">POSITIVAÇÁO</th>
+        <th rowspan="2" class="group-header">MIX MÉD.</th>
+      </tr>
+      <tr>
+        <th>2025</th>
+        <th>2026</th>
+        <th>%</th>
+        <th>Clit. Ativos</th>
+        <th>Posit. 2025</th>
+        <th>Posit. 2026</th>
+        <th>% Posit.</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+const API   = 'https://cerebro-jc-api.fbtechia.com/faturado-fornecedor';
+const TOKEN = '86e5b497c639a2bfd65a0467882dd3e02c472c31459e6d784c4acbe105ff1600';
+
+// ── Formatadores ────────────────────────────────────────────────
+const brl = v => 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+const brlM = v => {
+  const n = Number(v);
+  if (n >= 1e9) return 'R$ ' + (n/1e9).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' Bi';
+  if (n >= 1e6) return 'R$ ' + (n/1e6).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' Mi';
+  return brl(v);
+};
+const intl = v => Number(v).toLocaleString('pt-BR');
+const pctClass = p => p >= 100 ? 'g100' : p >= 80 ? 'g80' : p >= 70 ? 'g70' : 'low';
+
+function pctHtml(v) {
+  return `<span class="pct ${pctClass(v)}">${v}%</span>`;
+}
+
+// ── Cards de resumo ─────────────────────────────────────────────
+function renderCards(total, ano_anterior, ano_atual) {
+  const el = document.getElementById('cards');
+  el.innerHTML = [
+    { label: `Venda ${ano_anterior}`, value: brlM(total.venda_anterior), sub: 'Período anterior completo' },
+    { label: `Venda ${ano_atual}`,    value: brlM(total.venda_atual),    sub: `${total.pct_venda}% do ano anterior` },
+    { label: 'Positivação Atual',     value: `${intl(total.posit_atual)} clientes`, sub: `${total.pct_pos_atual}% da base ativa` },
+    { label: 'Base Ativa',            value: intl(total.clientes_ativos), sub: 'Clientes com movimento' },
+  ].map(c => `
+    <div class="card">
+      <div class="card-label">${c.label}</div>
+      <div class="card-value">${c.value}</div>
+      <div class="card-sub">${c.sub}</div>
+    </div>
+  `).join('');
+}
+
+// ── Linha da tabela ─────────────────────────────────────────────
+function rowHtml(f, isTotals) {
+  const cls = isTotals ? ' class="total-row"' : '';
+  const nome = isTotals ? 'TOTAL GERAL' : `<span class="num" style="margin-right:6px;font-size:11px">${f.cod_fornec}</span>${f.nome_fornec}`;
+  return `<tr${cls}>
+    <td>${nome}</td>
+    <td>${brl(f.venda_anterior)}</td>
+    <td>${brl(f.venda_atual)}</td>
+    <td>${pctHtml(f.pct_venda)}</td>
+    <td class="num">${intl(f.clientes_ativos)}</td>
+    <td class="num">${intl(f.posit_anterior)}</td>
+    <td class="num">${intl(f.posit_atual)}</td>
+    <td>${pctHtml(f.pct_pos_atual)}</td>
+    <td class="mix">${Number(f.mix_medio).toFixed(1)}</td>
+  </tr>`;
+}
+
+// ── Fetch e render ──────────────────────────────────────────────
+async function load() {
+  document.getElementById('ts').textContent =
+    new Date().toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+
+  try {
+    const res = await fetch(`${API}?all=true`, {
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    renderCards(data.total, data.ano_anterior, data.ano_atual);
+
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML =
+      rowHtml(data.total, true) +
+      (data.fornecedores || []).map(f => rowHtml(f, false)).join('');
+
+    document.getElementById('state').style.display = 'none';
+    document.getElementById('tbl').style.display = '';
+
+  } catch(e) {
+    const s = document.getElementById('state');
+    s.innerHTML = `<span class="error">Erro ao carregar dados: ${e.message}</span>`;
+  }
+}
+
+load();
+</script>
+</body>
+</html>
