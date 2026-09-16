@@ -22,6 +22,13 @@ services:
       # domínio). Fixado explicitamente aqui pra não depender de
       # detecção automática do Coolify/Traefik.
       - "traefik.http.services.cerebro-jc-api.loadbalancer.server.port=8090"
+      - "traefik.http.routers.http-0-uksccs8844cc4cccgk8kw00o-cerebro-jc-api.service=cerebro-jc-api"
+      - "traefik.http.routers.https-0-uksccs8844cc4cccgk8kw00o-cerebro-jc-api.service=cerebro-jc-api"
+      # Container em 3 redes (default do compose + fb_farol_net) — sem
+      # dizer qual delas o Traefik deve usar pra alcançar o container,
+      # ele pode escolher a errada (ex.: a fb_farol_net, que o
+      # coolify-proxy não integra) e travar a conexão silenciosamente.
+      - "traefik.docker.network=uksccs8844cc4cccgk8kw00o"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - API_TOKEN=${API_TOKEN}
