@@ -8,10 +8,11 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	_ "embed"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Cobertura struct {
@@ -170,7 +171,6 @@ ORDER BY venda_atual DESC NULLS LAST
 LIMIT $4
 `
 
-
 func withCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -190,43 +190,21 @@ func authOK(r *http.Request) bool {
 	return token != "" && auth == "Bearer "+token
 }
 
-func resumoHandler(w http.ResponseWriter, r *http.Request) {
-	if !authOK(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
+// buscarResumo/buscarCobertura extraídas dos handlers JSON originais pra
+// serem reusadas também pelos handlers de e-mail novos (coberturaEmailHandler)
+// sem duplicar SQL nem lógica de scan.
+
+func buscarResumo(ctx context.Context) (Resumo, error) {
 	var res Resumo
-	err := pool.QueryRow(context.Background(), resumoQuery, empresaJC).
+	err := pool.QueryRow(ctx, resumoQuery, empresaJC).
 		Scan(&res.TotalClientes, &res.TotalRcas, &res.TotalCritico, &res.TotalAtencao)
-	if err != nil {
-		log.Println("resumo query error:", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	return res, err
 }
 
-func coberturaHandler(w http.ResponseWriter, r *http.Request) {
-	if !authOK(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	supervisor := r.URL.Query().Get("supervisor")
-	limit := 100
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if l, err := strconv.Atoi(v); err == nil && l > 0 {
-			limit = l
-		}
-	}
-	if r.URL.Query().Get("all") == "true" {
-		limit = 1_000_000
-	}
-	rows, err := pool.Query(context.Background(), query, empresaJC, supervisor, limit)
+func buscarCobertura(ctx context.Context, supervisor string, limit int) ([]Cobertura, error) {
+	rows, err := pool.Query(ctx, query, empresaJC, supervisor, limit)
 	if err != nil {
-		log.Println("query error:", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	defer rows.Close()
 	results := []Cobertura{}
@@ -240,18 +218,99 @@ func coberturaHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, c)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	return results, rows.Err()
 }
 
-func faturadoFornecedorHandler(w http.ResponseWriter, r *http.Request) {
+func resumoHandler(w http.ResponseWriter, r *http.Request) {
 	if !authOK(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	res, err := buscarResumo(context.Background())
+	if err != nil {
+		log.Println("resumo query error:", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+func limiteDaQuery(r *http.Request, padrao, capoTodos int) int {
+	limit := padrao
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if l, err := strconv.Atoi(v); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if r.URL.Query().Get("all") == "true" {
+		limit = capoTodos
+	}
+	return limit
+}
+
+func coberturaHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	supervisor := r.URL.Query().Get("supervisor")
+	limit := limiteDaQuery(r, 100, 1_000_000)
+	results, err := buscarCobertura(context.Background(), supervisor, limit)
+	if err != nil {
+		log.Println("query error:", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// coberturaEmailHandler monta o Painel de Cobertura (resumo + lista) e
+// manda por e-mail — AD-7 da espinha: entrega de painel é sempre
+// server-side, o agente de IA só chama esta rota e confirma o envio.
+func coberturaEmailHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	email := strings.TrimSpace(r.URL.Query().Get("email"))
+	if email == "" {
+		writeJSONErro(w, http.StatusBadRequest, "parâmetro obrigatório: email")
+		return
+	}
+	supervisor := r.URL.Query().Get("supervisor")
+	ctx := context.Background()
+
+	res, err := buscarResumo(ctx)
+	if err != nil {
+		log.Println("resumo query error:", err)
+		writeJSONErro(w, http.StatusInternalServerError, "erro buscando resumo")
+		return
+	}
+	linhas, err := buscarCobertura(ctx, supervisor, 1_000_000)
+	if err != nil {
+		log.Println("cobertura query error:", err)
+		writeJSONErro(w, http.StatusInternalServerError, "erro buscando cobertura")
+		return
+	}
+
+	assunto, texto, htmlBody := construirEmailCobertura(res, linhas, supervisor)
+	if err := sendHTMLReport([]string{email}, assunto, texto, htmlBody); err != nil {
+		writeJSONErro(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"enviado": true, "para": email, "total_clientes": res.TotalClientes})
+}
+
+// resolverAnosELimit / buscarFaturadoFornecedor extraídas do handler
+// original pra reuso pelo handler de e-mail novo (mesmo racional de
+// buscarResumo/buscarCobertura acima).
+func resolverAnosELimit(r *http.Request) (anoAnterior, anoAtual, limit int) {
 	now := time.Now()
-	anoAtual := now.Year()
-	anoAnterior := anoAtual - 1
+	anoAtual = now.Year()
+	anoAnterior = anoAtual - 1
 	if v := r.URL.Query().Get("ano_anterior"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 2020 && n < anoAtual {
 			anoAnterior = n
@@ -262,21 +321,14 @@ func faturadoFornecedorHandler(w http.ResponseWriter, r *http.Request) {
 			anoAtual = n
 		}
 	}
-	limit := 200
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if l, err := strconv.Atoi(v); err == nil && l > 0 {
-			limit = l
-		}
-	}
-	if r.URL.Query().Get("all") == "true" {
-		limit = 100_000
-	}
-	rows, err := pool.Query(context.Background(), faturadoFornecedorQuery,
-		empresaJC, anoAnterior, anoAtual, limit)
+	limit = limiteDaQuery(r, 200, 100_000)
+	return
+}
+
+func buscarFaturadoFornecedor(ctx context.Context, anoAnterior, anoAtual, limit int) (FaturadoResp, error) {
+	rows, err := pool.Query(ctx, faturadoFornecedorQuery, empresaJC, anoAnterior, anoAtual, limit)
 	if err != nil {
-		log.Println("faturado-fornecedor query error:", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return FaturadoResp{}, err
 	}
 	defer rows.Close()
 	var fornecedores []FornecedorRow
@@ -293,6 +345,9 @@ func faturadoFornecedorHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		fornecedores = append(fornecedores, f)
+	}
+	if err := rows.Err(); err != nil {
+		return FaturadoResp{}, err
 	}
 	if fornecedores == nil {
 		fornecedores = []FornecedorRow{}
@@ -324,14 +379,100 @@ func faturadoFornecedorHandler(w http.ResponseWriter, r *http.Request) {
 	if mixCount > 0 {
 		total.MixMedio = math.Round(mixSum/float64(mixCount)*10) / 10
 	}
-	resp := FaturadoResp{
+	return FaturadoResp{
 		AnoAnterior:  anoAnterior,
 		AnoAtual:     anoAtual,
 		Total:        total,
 		Fornecedores: fornecedores,
+	}, nil
+}
+
+func faturadoFornecedorHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	anoAnterior, anoAtual, limit := resolverAnosELimit(r)
+	resp, err := buscarFaturadoFornecedor(context.Background(), anoAnterior, anoAtual, limit)
+	if err != nil {
+		log.Println("faturado-fornecedor query error:", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// faturadoFornecedorEmailHandler monta o Painel de Faturado e manda por
+// e-mail — AD-7.
+func faturadoFornecedorEmailHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	email := strings.TrimSpace(r.URL.Query().Get("email"))
+	if email == "" {
+		writeJSONErro(w, http.StatusBadRequest, "parâmetro obrigatório: email")
+		return
+	}
+	anoAnterior, anoAtual, _ := resolverAnosELimit(r)
+	resp, err := buscarFaturadoFornecedor(context.Background(), anoAnterior, anoAtual, 100_000)
+	if err != nil {
+		log.Println("faturado-fornecedor query error:", err)
+		writeJSONErro(w, http.StatusInternalServerError, "erro buscando faturado por fornecedor")
+		return
+	}
+	assunto, texto, htmlBody := construirEmailFaturado(resp)
+	if err := sendHTMLReport([]string{email}, assunto, texto, htmlBody); err != nil {
+		writeJSONErro(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"enviado": true, "para": email, "ano_anterior": anoAnterior, "ano_atual": anoAtual})
+}
+
+// objetivosIndustriaEmailHandler repassa a chamada pro FB_FAROL (AD-3 —
+// nunca recalcula, só encaminha).
+func objetivosIndustriaEmailHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	q := r.URL.Query()
+	industria, periodo, email := q.Get("industria"), q.Get("periodo"), strings.TrimSpace(q.Get("email"))
+	if industria == "" || periodo == "" || email == "" {
+		writeJSONErro(w, http.StatusBadRequest, "parâmetros obrigatórios: industria, periodo, email")
+		return
+	}
+	client, err := newFarolClient()
+	if err != nil {
+		log.Println("farol client error:", err)
+		writeJSONErro(w, http.StatusInternalServerError, "FAROL_GATEWAY_TOKEN não configurado neste serviço")
+		return
+	}
+	out, err := client.enviarObjetivosIndustriaEmail(industria, periodo, q.Get("fluxo"), email)
+	if err != nil {
+		writeJSONErro(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := pool.Ping(context.Background()); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status": "erro", "detalhe": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func writeJSONErro(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 func painelHandler(w http.ResponseWriter, r *http.Request) {
@@ -358,6 +499,10 @@ func main() {
 	http.HandleFunc("/resumo", withCORS(resumoHandler))
 	http.HandleFunc("/faturado-fornecedor", withCORS(faturadoFornecedorHandler))
 	http.HandleFunc("/painel", painelHandler)
+	http.HandleFunc("/cobertura-email", withCORS(coberturaEmailHandler))
+	http.HandleFunc("/faturado-fornecedor-email", withCORS(faturadoFornecedorEmailHandler))
+	http.HandleFunc("/objetivos-industria-email", withCORS(objetivosIndustriaEmailHandler))
+	http.HandleFunc("/health", healthHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
