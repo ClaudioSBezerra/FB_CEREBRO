@@ -41,4 +41,5 @@ services:
       - FAROL_BASE_URL=${FAROL_BASE_URL}
       - FAROL_GATEWAY_TOKEN=${FAROL_GATEWAY_TOKEN}
       - EMAILS_PERMITIDOS=${EMAILS_PERMITIDOS}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
     restart: unless-stopped

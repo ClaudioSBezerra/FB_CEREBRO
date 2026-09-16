@@ -40,6 +40,7 @@ Todas (exceto `/painel` e `/health`) exigem `Authorization: Bearer <API_TOKEN>`.
 | `GET /faturado-fornecedor-email?email=` | monta e envia o painel de Faturado por e-mail |
 | `GET /objetivos-industria-email?industria=&periodo=&email=&fluxo=` | repassa pro FB_FAROL (`/api/farol-jc/objetivos-industria-email`) |
 | `POST /enviar-email` `{email, assunto, corpo_html, corpo_texto}` | envio genérico de e-mail, pra agentes sem painel próprio (ex: resumo diário do "Monitor do CEO") — só entrega pra destinatário na allowlist `EMAILS_PERMITIDOS` |
+| `GET /noticias-investimento?query=&max_results=` | busca notícias reais (API REST do Tavily, sem MCP) — devolve título/URL/trecho/data crus, pro agente resumir sem inventar |
 | `GET /painel` | dashboard HTML ao vivo, sem auth (link direto) |
 | `GET /health` | health-check, sem auth |
 
@@ -53,6 +54,7 @@ Todas (exceto `/painel` e `/health`) exigem `Authorization: Bearer <API_TOKEN>`.
 | `FAROL_BASE_URL` | não (default `https://farol.fbtax.cloud`) | base do FB_FAROL pro proxy de Objetivos por Indústria |
 | `FAROL_GATEWAY_TOKEN` | sim, pra `/objetivos-industria-email` | token PRÓPRIO deste serviço pra chamar o FB_FAROL — **precisa ser criado e cadastrado como `FAROL_GATEWAY_TOKEN` também no FB_FAROL** (env var separada de `FAROL_MCP_TOKEN`, ver AD-6 da espinha) |
 | `EMAILS_PERMITIDOS` | sim, pra `/enviar-email` | lista de destinatários autorizados pro envio genérico, separados por vírgula (ex: `claudio.bezerra@ferreiracosta.com.br,jose.costa@ferreiracosta.com.br`) — sem essa trava, o `API_TOKEN` vazado viraria relay de e-mail pra qualquer destinatário |
+| `TAVILY_API_KEY` | sim, pra `/noticias-investimento` | key da API REST do Tavily (`tvly-...`) — usada porque o sandbox do agente Paperclip não tem busca web confiável nem MCP disponível nessa instância |
 | `PORT` | não (default `8090`) | porta HTTP |
 
 ## Testes
