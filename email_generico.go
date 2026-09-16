@@ -10,7 +10,13 @@ package main
 // Allowlist por variável de ambiente (EMAILS_PERMITIDOS, separado por
 // vírgula): o token que autentica este endpoint é o mesmo compartilhado
 // entre vários agentes Paperclip — sem essa trava, um token vazado vira
-// relay de e-mail pra qualquer destinatário.
+// relay de e-mail pra qualquer destinatário. Pra não ficar engessado
+// exigindo redeploy a cada pessoa nova da empresa (decisão do Claudio,
+// 16/09/2026): uma entrada começando com "@" libera o DOMÍNIO inteiro
+// (ex: "@ferreiracosta.com.br" aceita qualquer endereço desse domínio,
+// sem precisar listar cada pessoa) — e-mails pessoais (gmail, hotmail)
+// continuam precisando estar na lista exata, já que não dá pra confiar
+// no domínio de um provedor público.
 
 import (
 	"encoding/json"
@@ -41,14 +47,59 @@ func emailsPermitidos() []string {
 	return out
 }
 
+// emailPermitido aceita dois formatos de entrada na allowlist: e-mail exato
+// ("fulano@x.com") ou domínio inteiro prefixado com "@" ("@x.com", libera
+// qualquer endereço desse domínio).
 func emailPermitido(email string, permitidos []string) bool {
 	email = strings.ToLower(strings.TrimSpace(email))
 	for _, p := range permitidos {
+		if strings.HasPrefix(p, "@") {
+			if strings.HasSuffix(email, p) {
+				return true
+			}
+			continue
+		}
 		if p == email {
 			return true
 		}
 	}
 	return false
+}
+
+// parseDestinatarios aceita 1+ e-mails separados por vírgula no mesmo campo
+// `email` (ex: "a@x.com,b@y.com") — permite mandar o mesmo resumo pra vários
+// destinatários numa só chamada, sem mudar o formato do request. Remove
+// espaços e duplicatas (case-insensitive), preservando a ordem de entrada.
+func parseDestinatarios(campo string) []string {
+	vistos := map[string]bool{}
+	var out []string
+	for _, e := range strings.Split(campo, ",") {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		chave := strings.ToLower(e)
+		if vistos[chave] {
+			continue
+		}
+		vistos[chave] = true
+		out = append(out, e)
+	}
+	return out
+}
+
+// destinatariosNaoAutorizados devolve, da lista pedida, só os que NÃO estão
+// na allowlist — usado pra rejeitar a chamada inteira (nunca manda só pra
+// parte autorizada e ignora o resto em silêncio) e dizer exatamente qual
+// endereço bloqueou.
+func destinatariosNaoAutorizados(destinatarios, permitidos []string) []string {
+	var naoAutorizados []string
+	for _, d := range destinatarios {
+		if !emailPermitido(d, permitidos) {
+			naoAutorizados = append(naoAutorizados, d)
+		}
+	}
+	return naoAutorizados
 }
 
 // enviarEmailHandler aceita POST {email, assunto, corpo_html, corpo_texto}
@@ -68,9 +119,9 @@ func enviarEmailHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONErro(w, http.StatusBadRequest, "corpo inválido: "+err.Error())
 		return
 	}
-	req.Email = strings.TrimSpace(req.Email)
 	req.Assunto = strings.TrimSpace(req.Assunto)
-	if req.Email == "" || req.Assunto == "" || req.CorpoHTML == "" {
+	destinatarios := parseDestinatarios(req.Email)
+	if len(destinatarios) == 0 || req.Assunto == "" || req.CorpoHTML == "" {
 		writeJSONErro(w, http.StatusBadRequest, "campos obrigatórios: email, assunto, corpo_html")
 		return
 	}
@@ -79,18 +130,18 @@ func enviarEmailHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONErro(w, http.StatusServiceUnavailable, "EMAILS_PERMITIDOS não configurado neste serviço")
 		return
 	}
-	if !emailPermitido(req.Email, permitidos) {
-		writeJSONErro(w, http.StatusForbidden, "destinatário não autorizado")
+	if bloqueados := destinatariosNaoAutorizados(destinatarios, permitidos); len(bloqueados) > 0 {
+		writeJSONErro(w, http.StatusForbidden, "destinatário não autorizado: "+strings.Join(bloqueados, ", "))
 		return
 	}
 	corpoTexto := req.CorpoTexto
 	if corpoTexto == "" {
 		corpoTexto = "Este e-mail contém conteúdo em HTML. Abra em um cliente compatível."
 	}
-	if err := sendHTMLReport([]string{req.Email}, req.Assunto, corpoTexto, req.CorpoHTML); err != nil {
+	if err := sendHTMLReport(destinatarios, req.Assunto, corpoTexto, req.CorpoHTML); err != nil {
 		writeJSONErro(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"enviado": true, "para": req.Email})
+	json.NewEncoder(w).Encode(map[string]any{"enviado": true, "para": destinatarios})
 }

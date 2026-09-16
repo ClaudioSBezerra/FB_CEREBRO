@@ -37,6 +37,25 @@ func TestEmailPermitidoCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestEmailPermitidoPorDominio(t *testing.T) {
+	permitidos := []string{"@ferreiracosta.com.br", "claudiosousadebezerra@gmail.com"}
+	if !emailPermitido("qualquer.pessoa@ferreiracosta.com.br", permitidos) {
+		t.Error("esperava permitido: qualquer endereço do domínio liberado")
+	}
+	if !emailPermitido("Outra.Pessoa@Ferreiracosta.com.br", permitidos) {
+		t.Error("esperava permitido (case-insensitive) por domínio")
+	}
+	if !emailPermitido("claudiosousadebezerra@gmail.com", permitidos) {
+		t.Error("esperava permitido: e-mail exato ainda funciona")
+	}
+	if emailPermitido("outro@gmail.com", permitidos) {
+		t.Error("gmail.com não está liberado por domínio — só o endereço exato cadastrado")
+	}
+	if emailPermitido("x@naoferreiracosta.com.br", permitidos) {
+		t.Error("domínio parecido não deveria bypassar o sufixo real")
+	}
+}
+
 func TestEnviarEmailHandlerSemAuth(t *testing.T) {
 	t.Setenv("API_TOKEN", "tok")
 	r := httptest.NewRequest("POST", "/enviar-email", strings.NewReader(`{}`))
@@ -92,6 +111,60 @@ func TestEnviarEmailHandlerDestinatarioNaoAutorizado(t *testing.T) {
 	enviarEmailHandler(rec, r)
 	if rec.Code != 403 {
 		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestParseDestinatariosMultiplosComEspacosEDuplicatas(t *testing.T) {
+	got := parseDestinatarios(" a@x.com, B@Y.com ,a@x.com, ,b@y.com")
+	want := []string{"a@x.com", "B@Y.com"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestDestinatariosNaoAutorizadosIdentificaSoOsBloqueados(t *testing.T) {
+	permitidos := []string{"a@x.com", "b@y.com"}
+	bloqueados := destinatariosNaoAutorizados([]string{"a@x.com", "outro@z.com", "b@y.com"}, permitidos)
+	if len(bloqueados) != 1 || bloqueados[0] != "outro@z.com" {
+		t.Errorf("bloqueados = %v, want [outro@z.com]", bloqueados)
+	}
+}
+
+func TestEnviarEmailHandlerMultiplosDestinatariosUmNaoAutorizadoRejeitaTudo(t *testing.T) {
+	t.Setenv("API_TOKEN", "tok")
+	t.Setenv("EMAILS_PERMITIDOS", "a@x.com,b@y.com")
+	body := `{"email":"a@x.com,outro@z.com","assunto":"a","corpo_html":"<p>b</p>"}`
+	r := httptest.NewRequest("POST", "/enviar-email", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	enviarEmailHandler(rec, r)
+	if rec.Code != 403 {
+		t.Errorf("status = %d, want 403 (rejeita a chamada inteira, não manda só pros autorizados)", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "outro@z.com") {
+		t.Errorf("body = %q, esperava citar o destinatário bloqueado", rec.Body.String())
+	}
+}
+
+func TestEnviarEmailHandlerMultiplosDestinatariosTodosAutorizadosSemSMTP(t *testing.T) {
+	t.Setenv("API_TOKEN", "tok")
+	t.Setenv("EMAILS_PERMITIDOS", "a@x.com,b@y.com")
+	t.Setenv("SMTP_USER", "")
+	t.Setenv("SMTP_PASSWORD", "")
+	body := `{"email":"a@x.com,b@y.com","assunto":"a","corpo_html":"<p>b</p>"}`
+	r := httptest.NewRequest("POST", "/enviar-email", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	enviarEmailHandler(rec, r)
+	// passa dos dois pela allowlist e só falha no SMTP (sem rede real em teste,
+	// AD-9) — prova que a lista inteira foi validada antes de tentar enviar.
+	if rec.Code != 502 {
+		t.Errorf("status = %d, want 502 (SMTP não configurado)", rec.Code)
 	}
 }
 
