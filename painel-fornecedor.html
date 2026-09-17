@@ -226,7 +226,7 @@
   <div class="period-badge">
     <strong>ANO × ANO</strong>
     <div class="dot"></div>
-    <span>2025 (365 dias) vs 2026 (247 dias)</span>
+    <span id="period-label">—</span>
     <div class="dot"></div>
     <span class="ts" id="ts">—</span>
   </div>
@@ -248,12 +248,12 @@
         <th rowspan="2" class="group-header">MIX MÉD.</th>
       </tr>
       <tr>
-        <th>2025</th>
-        <th>2026</th>
+        <th id="th-venda-ant">—</th>
+        <th id="th-venda-atu">—</th>
         <th>%</th>
         <th>Clit. Ativos</th>
-        <th>Posit. 2025</th>
-        <th>Posit. 2026</th>
+        <th id="th-posit-ant">Posit. —</th>
+        <th id="th-posit-atu">Posit. —</th>
         <th>% Posit.</th>
       </tr>
     </thead>
@@ -284,7 +284,7 @@ function pctHtml(v) {
 function renderCards(total, ano_anterior, ano_atual) {
   const el = document.getElementById('cards');
   el.innerHTML = [
-    { label: `Venda ${ano_anterior}`, value: brlM(total.venda_anterior), sub: 'Período anterior completo' },
+    { label: `Venda ${ano_anterior}`, value: brlM(total.venda_anterior), sub: 'Mesmo período, ano anterior' },
     { label: `Venda ${ano_atual}`,    value: brlM(total.venda_atual),    sub: `${total.pct_venda}% do ano anterior` },
     { label: 'Positivação Atual',     value: `${intl(total.posit_atual)} clientes`, sub: `${total.pct_pos_atual}% da base ativa` },
     { label: 'Base Ativa',            value: intl(total.clientes_ativos), sub: 'Clientes com movimento' },
@@ -325,6 +325,20 @@ async function load() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+
+    // Rótulo do período: dinâmico, refletindo o que a API de fato
+    // comparou (mesmo dia-do-ano nos dois anos) — antes era texto fixo
+    // no HTML ("2025 (365 dias) vs 2026 (247 dias)") que nunca batia
+    // com o dado real (achado 17/09/2026).
+    const hoje = new Date();
+    const inicioAno = new Date(hoje.getFullYear(), 0, 1);
+    const diasDecorridos = Math.floor((hoje - inicioAno) / 86400000) + 1;
+    document.getElementById('period-label').textContent =
+      `${data.ano_anterior} (${diasDecorridos} dias) vs ${data.ano_atual} (${diasDecorridos} dias) — mesmo dia do ano`;
+    document.getElementById('th-venda-ant').textContent = data.ano_anterior;
+    document.getElementById('th-venda-atu').textContent = data.ano_atual;
+    document.getElementById('th-posit-ant').textContent = `Posit. ${data.ano_anterior}`;
+    document.getElementById('th-posit-atu').textContent = `Posit. ${data.ano_atual}`;
 
     renderCards(data.total, data.ano_anterior, data.ano_atual);
 
