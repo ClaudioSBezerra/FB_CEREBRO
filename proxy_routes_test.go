@@ -75,3 +75,25 @@ func TestHistoricoCalibragemHandlerSemSmartPickGatewayToken(t *testing.T) {
 		t.Errorf("status = %d, want 500 (SMARTPICK_GATEWAY_TOKEN ausente)", rec.Code)
 	}
 }
+
+func TestCentrosDistribuicaoHandlerSemAuth(t *testing.T) {
+	t.Setenv("API_TOKEN", "tok")
+	r := httptest.NewRequest("GET", "/centros-distribuicao", nil)
+	rec := httptest.NewRecorder()
+	centrosDistribuicaoHandler(rec, r)
+	if rec.Code != 401 {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestCentrosDistribuicaoHandlerSemSmartPickGatewayToken(t *testing.T) {
+	t.Setenv("API_TOKEN", "tok")
+	t.Setenv("SMARTPICK_GATEWAY_TOKEN", "")
+	r := httptest.NewRequest("GET", "/centros-distribuicao", nil)
+	r.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	centrosDistribuicaoHandler(rec, r)
+	if rec.Code != 500 {
+		t.Errorf("status = %d, want 500 (SMARTPICK_GATEWAY_TOKEN ausente)", rec.Code)
+	}
+}

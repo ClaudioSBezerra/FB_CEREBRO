@@ -49,3 +49,11 @@ func (c *smartPickClient) historicoCalibragem(cdID, anoInicio string) (status in
 	reqURL := c.baseURL + "/api/relatorios/historico-calibragem?" + q.Encode()
 	return proxyGet(c.http, reqURL, "X-API-Key", c.token)
 }
+
+// centrosDistribuicao repassa pro GET /api/relatorios/centros-distribuicao
+// do FB_SMARTPICK — lista de CDs (nome → cd_id) pra quem for chamar
+// historicoCalibragem não precisar adivinhar o cd_id numérico.
+func (c *smartPickClient) centrosDistribuicao() (status int, body []byte, err error) {
+	reqURL := c.baseURL + "/api/relatorios/centros-distribuicao"
+	return proxyGet(c.http, reqURL, "X-API-Key", c.token)
+}

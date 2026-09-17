@@ -48,7 +48,8 @@ Todas (exceto `/painel` e `/health`) exigem `Authorization: Bearer <API_TOKEN>`.
 | `GET /industrias` | repassa pro FB_FAROL (`/api/farol-jc/industrias`) |
 | `GET /objetivos-industria?industria=&periodo=&fluxo=` | repassa pro FB_FAROL (`/api/farol-jc/objetivos-industria`), sem e-mail — números crus |
 | `GET /comparativo-fechamento?industria=&periodo=` | repassa pro FB_FAROL (`/api/farol-jc/comparativo-fechamento`) |
-| `GET /historico-calibragem?cd_id=&ano_inicio=` | repassa pro FB_SMARTPICK (`/api/relatorios/historico-calibragem`) |
+| `GET /historico-calibragem?cd_id=&ano_inicio=` | repassa pro FB_SMARTPICK (`/api/relatorios/historico-calibragem`) — `cd_id` é numérico; use `/centros-distribuicao` pra descobrir o id de um CD pelo nome, em vez de adivinhar |
+| `GET /centros-distribuicao` | repassa pro FB_SMARTPICK (`/api/relatorios/centros-distribuicao`) — lista `{cd_id, cd_nome, filial_nome, cod_filial}` de todos os CDs ativos |
 | `POST /enviar-email` `{email, assunto, corpo_html, corpo_texto}` | envio genérico de e-mail, pra agentes sem painel próprio (ex: resumo diário do "Monitor do CEO") — `email` aceita 1+ destinatários separados por vírgula; todos precisam estar na allowlist `EMAILS_PERMITIDOS`, senão a chamada inteira é rejeitada |
 | `GET /noticias-investimento?query=&max_results=` | busca notícias reais (API REST do Tavily, sem MCP) — devolve título/URL/trecho/data crus, pro agente resumir sem inventar |
 | `GET /painel` | dashboard HTML ao vivo, sem auth (link direto) |
@@ -75,7 +76,7 @@ Todas (exceto `/painel` e `/health`) exigem `Authorization: Bearer <API_TOKEN>`.
 go test ./...
 ```
 
-42 testes, sem banco nem rede real (AD-9 da espinha) — a lógica pura
+46 testes, sem banco nem rede real (AD-9 da espinha) — a lógica pura
 (formatação de e-mail, montagem de HTML, parsing de parâmetros, allowlist)
 é validada sem infraestrutura nenhuma.
 

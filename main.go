@@ -534,6 +534,23 @@ func historicoCalibragemHandler(w http.ResponseWriter, r *http.Request) {
 	escreverProxy(w, status, body, err)
 }
 
+// centrosDistribuicaoHandler — proxy puro pro FB_SMARTPICK, lista de CDs
+// (nome → cd_id) pra resolver o cd_id que historicoCalibragemHandler
+// exige, sem precisar adivinhar por tentativa e erro.
+func centrosDistribuicaoHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := newSmartPickClient()
+	if err != nil {
+		writeJSONErro(w, http.StatusInternalServerError, "SMARTPICK_GATEWAY_TOKEN não configurado neste serviço")
+		return
+	}
+	status, body, err := client.centrosDistribuicao()
+	escreverProxy(w, status, body, err)
+}
+
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := pool.Ping(context.Background()); err != nil {
@@ -583,6 +600,7 @@ func main() {
 	http.HandleFunc("/objetivos-industria", withCORS(objetivosIndustriaHandler))
 	http.HandleFunc("/comparativo-fechamento", withCORS(comparativoFechamentoHandler))
 	http.HandleFunc("/historico-calibragem", withCORS(historicoCalibragemHandler))
+	http.HandleFunc("/centros-distribuicao", withCORS(centrosDistribuicaoHandler))
 	http.HandleFunc("/enviar-email", withCORS(enviarEmailHandler))
 	http.HandleFunc("/noticias-investimento", withCORS(noticiasInvestimentoHandler))
 	http.HandleFunc("/health", healthHandler)
