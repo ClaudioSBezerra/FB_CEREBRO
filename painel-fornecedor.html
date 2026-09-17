@@ -75,7 +75,7 @@
   /* ── Summary cards ── */
   .cards {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 1px;
     background: var(--border);
     border-bottom: 1px solid var(--border);
@@ -104,9 +104,106 @@
     margin-top: 4px;
   }
 
+  /* ── Chart ── */
+  .chart-section {
+    padding: 24px 32px 8px;
+  }
+  .chart-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .chart-subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 18px;
+  }
+  .bar-row {
+    margin-bottom: 14px;
+  }
+  .bar-row:last-child { margin-bottom: 0; }
+  .bar-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12.5px;
+    margin-bottom: 4px;
+    gap: 12px;
+  }
+  .bar-name {
+    color: var(--text);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bar-value {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .bar-track {
+    position: relative;
+    height: 10px;
+    background: var(--surface);
+    border-radius: 3px;
+    overflow: visible;
+  }
+  .bar-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    border-radius: 3px;
+    background: var(--accent);
+  }
+  .bar-fill.g100 { background: var(--green); }
+  .bar-fill.g80  { background: var(--yellow); }
+  .bar-fill.g70  { background: var(--orange); }
+  .bar-fill.low  { background: var(--red); }
+  .bar-marker {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 16px;
+    background: var(--muted);
+    border-radius: 1px;
+  }
+  .chart-legend {
+    display: flex;
+    gap: 18px;
+    font-size: 11px;
+    color: var(--muted);
+    margin: 16px 0 4px;
+  }
+  .chart-legend span { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--accent); }
+  .legend-marker { width: 2px; height: 10px; background: var(--muted); }
+
+  /* ── Search ── */
+  .search-wrap {
+    padding: 20px 32px 0;
+  }
+  .search-input {
+    width: 100%;
+    max-width: 320px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 12.5px;
+    padding: 8px 12px;
+    border-radius: 5px;
+    outline: none;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .search-input::placeholder { color: var(--muted); }
+
   /* ── Table ── */
   .table-wrap {
     overflow-x: auto;
+    padding-top: 12px;
   }
 
   table {
@@ -131,14 +228,6 @@
     z-index: 1;
   }
   thead th:first-child { text-align: left; min-width: 220px; padding-left: 32px; }
-  thead .group-header {
-    text-align: center;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg);
-    font-size: 9px;
-    letter-spacing: .1em;
-    padding: 6px 12px;
-  }
 
   tbody tr {
     border-bottom: 1px solid var(--border);
@@ -168,12 +257,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  td.cod {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    color: var(--muted);
-    padding-right: 4px;
-  }
 
   .pct {
     display: inline-flex;
@@ -187,12 +270,6 @@
   .pct.g80  { color: var(--yellow); }
   .pct.g70  { color: var(--orange); }
   .pct.low  { color: var(--red); }
-
-  .mix {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    color: var(--accent);
-  }
 
   .num { color: var(--muted); font-size: 12px; }
 
@@ -234,31 +311,39 @@
 
 <div class="cards" id="cards"></div>
 
-<div class="table-wrap">
-  <div class="state" id="state">
-    <div class="spinner"></div>
-    <span>Buscando dados...</span>
+<div id="state" class="state">
+  <div class="spinner"></div>
+  <span>Buscando dados...</span>
+</div>
+
+<div id="conteudo" style="display:none">
+  <div class="chart-section">
+    <div class="chart-title">Top 20 fornecedores — venda atual</div>
+    <div class="chart-subtitle" id="chart-subtitle">—</div>
+    <div id="chart"></div>
+    <div class="chart-legend">
+      <span><span class="legend-swatch"></span> Venda no ano atual (cor = crescimento)</span>
+      <span><span class="legend-marker"></span> Venda no ano anterior (mesmo recorte)</span>
+    </div>
   </div>
-  <table id="tbl" style="display:none">
-    <thead>
-      <tr class="group-header">
-        <th rowspan="2" style="text-align:left;padding-left:32px">FORNECEDOR</th>
-        <th colspan="3" class="group-header">VENDA</th>
-        <th colspan="4" class="group-header">POSITIVAÇÁO</th>
-        <th rowspan="2" class="group-header">MIX MÉD.</th>
-      </tr>
-      <tr>
-        <th id="th-venda-ant">—</th>
-        <th id="th-venda-atu">—</th>
-        <th>%</th>
-        <th>Clit. Ativos</th>
-        <th id="th-posit-ant">Posit. —</th>
-        <th id="th-posit-atu">Posit. —</th>
-        <th>% Posit.</th>
-      </tr>
-    </thead>
-    <tbody id="tbody"></tbody>
-  </table>
+
+  <div class="search-wrap">
+    <input class="search-input" id="busca" type="text" placeholder="Buscar fornecedor...">
+  </div>
+
+  <div class="table-wrap">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>FORNECEDOR</th>
+          <th id="th-venda-ant">—</th>
+          <th id="th-venda-atu">—</th>
+          <th>%</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
 </div>
 
 <script>
@@ -273,7 +358,6 @@ const brlM = v => {
   if (n >= 1e6) return 'R$ ' + (n/1e6).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' Mi';
   return brl(v);
 };
-const intl = v => Number(v).toLocaleString('pt-BR');
 const pctClass = p => p >= 100 ? 'g100' : p >= 80 ? 'g80' : p >= 70 ? 'g70' : 'low';
 
 function pctHtml(v) {
@@ -283,11 +367,11 @@ function pctHtml(v) {
 // ── Cards de resumo ─────────────────────────────────────────────
 function renderCards(total, ano_anterior, ano_atual) {
   const el = document.getElementById('cards');
+  const cresceu = total.venda_atual - total.venda_anterior;
   el.innerHTML = [
     { label: `Venda ${ano_anterior}`, value: brlM(total.venda_anterior), sub: 'Mesmo período, ano anterior' },
     { label: `Venda ${ano_atual}`,    value: brlM(total.venda_atual),    sub: `${total.pct_venda}% do ano anterior` },
-    { label: 'Positivação Atual',     value: `${intl(total.posit_atual)} clientes`, sub: `${total.pct_pos_atual}% da base ativa` },
-    { label: 'Base Ativa',            value: intl(total.clientes_ativos), sub: 'Clientes com movimento' },
+    { label: 'Variação',              value: `${cresceu >= 0 ? '+' : ''}${brlM(cresceu)}`, sub: cresceu >= 0 ? 'Acima do ano anterior' : 'Abaixo do ano anterior' },
   ].map(c => `
     <div class="card">
       <div class="card-label">${c.label}</div>
@@ -297,22 +381,53 @@ function renderCards(total, ano_anterior, ano_atual) {
   `).join('');
 }
 
+// ── Gráfico (barras horizontais, escala comum) ───────────────────
+function renderChart(fornecedores, anoAnterior) {
+  const top = [...fornecedores]
+    .sort((a, b) => b.venda_atual - a.venda_atual)
+    .slice(0, 20);
+
+  const maior = top.reduce((m, f) => Math.max(m, f.venda_atual, f.venda_anterior), 0);
+
+  document.getElementById('chart-subtitle').textContent =
+    `Traço cinza marca a venda de ${anoAnterior} na mesma escala — barra à direita do traço é crescimento, à esquerda é queda.`;
+
+  document.getElementById('chart').innerHTML = top.map(f => {
+    const largura = maior > 0 ? (f.venda_atual / maior * 100) : 0;
+    const marcador = maior > 0 ? (f.venda_anterior / maior * 100) : 0;
+    return `
+    <div class="bar-row">
+      <div class="bar-label">
+        <span class="bar-name">${f.nome_fornec}</span>
+        <span class="bar-value">${brlM(f.venda_atual)} ${pctHtml(f.pct_venda)}</span>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill ${pctClass(f.pct_venda)}" style="width:${largura}%"></div>
+        <div class="bar-marker" style="left:calc(${marcador}% - 1px)" title="${anoAnterior}: ${brl(f.venda_anterior)}"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 // ── Linha da tabela ─────────────────────────────────────────────
 function rowHtml(f, isTotals) {
   const cls = isTotals ? ' class="total-row"' : '';
   const nome = isTotals ? 'TOTAL GERAL' : `<span class="num" style="margin-right:6px;font-size:11px">${f.cod_fornec}</span>${f.nome_fornec}`;
-  return `<tr${cls}>
+  return `<tr${cls} data-nome="${(f.nome_fornec || '').toLowerCase()}">
     <td>${nome}</td>
     <td>${brl(f.venda_anterior)}</td>
     <td>${brl(f.venda_atual)}</td>
     <td>${pctHtml(f.pct_venda)}</td>
-    <td class="num">${intl(f.clientes_ativos)}</td>
-    <td class="num">${intl(f.posit_anterior)}</td>
-    <td class="num">${intl(f.posit_atual)}</td>
-    <td>${pctHtml(f.pct_pos_atual)}</td>
-    <td class="mix">${Number(f.mix_medio).toFixed(1)}</td>
   </tr>`;
 }
+
+// ── Busca (filtro client-side, não refaz fetch) ──────────────────
+document.getElementById('busca').addEventListener('input', (e) => {
+  const termo = e.target.value.toLowerCase();
+  document.querySelectorAll('#tbody tr:not(.total-row)').forEach(tr => {
+    tr.style.display = tr.dataset.nome.includes(termo) ? '' : 'none';
+  });
+});
 
 // ── Fetch e render ──────────────────────────────────────────────
 async function load() {
@@ -337,10 +452,9 @@ async function load() {
       `${data.ano_anterior} (${diasDecorridos} dias) vs ${data.ano_atual} (${diasDecorridos} dias) — mesmo dia do ano`;
     document.getElementById('th-venda-ant').textContent = data.ano_anterior;
     document.getElementById('th-venda-atu').textContent = data.ano_atual;
-    document.getElementById('th-posit-ant').textContent = `Posit. ${data.ano_anterior}`;
-    document.getElementById('th-posit-atu').textContent = `Posit. ${data.ano_atual}`;
 
     renderCards(data.total, data.ano_anterior, data.ano_atual);
+    renderChart(data.fornecedores || [], data.ano_anterior);
 
     const tbody = document.getElementById('tbody');
     tbody.innerHTML =
@@ -348,7 +462,7 @@ async function load() {
       (data.fornecedores || []).map(f => rowHtml(f, false)).join('');
 
     document.getElementById('state').style.display = 'none';
-    document.getElementById('tbl').style.display = '';
+    document.getElementById('conteudo').style.display = '';
 
   } catch(e) {
     const s = document.getElementById('state');

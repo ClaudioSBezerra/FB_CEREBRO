@@ -121,6 +121,13 @@ func construirEmailFaturado(resp FaturadoResp) (assunto, texto, htmlBody string)
 		}
 	}
 
+	var maiorVenda float64
+	for _, f := range fornecedores {
+		if f.VendaAtual > maiorVenda {
+			maiorVenda = f.VendaAtual
+		}
+	}
+
 	var b strings.Builder
 	fmt.Fprintf(&b, `<div style="font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;max-width:680px">`)
 	fmt.Fprintf(&b, `<p style="margin:0 0 4px;font-size:13px;color:#667">Farol de Vendas · Faturado por Fornecedor</p>`)
@@ -129,25 +136,30 @@ func construirEmailFaturado(resp FaturadoResp) (assunto, texto, htmlBody string)
 	fmt.Fprintf(&b, `<div style="background:#f6f7f6;border-left:3px solid #1B6660;padding:14px 18px;margin-bottom:12px">
 <div style="font-size:13px;color:#556">TOTAL GERAL</div>
 <div style="font-size:26px;font-weight:bold;margin-top:2px">%s <span style="font-size:16px;font-weight:normal;color:%s">(%d%%)</span></div>
-<div style="font-size:13px;color:#556;margin-top:4px">%d clientes ativos · %d%% positivados · mix médio %.1f</div></div>`,
+<div style="font-size:13px;color:#556;margin-top:4px">Ano anterior: %s</div></div>`,
 		brlValor(resp.Total.VendaAtual), corPct(resp.Total.PctVenda), resp.Total.PctVenda,
-		resp.Total.ClientesAtivos, resp.Total.PctPosAtual, resp.Total.MixMedio)
+		brlValor(resp.Total.VendaAnterior))
 
 	if len(fornecedores) > 0 {
 		fmt.Fprintf(&b, `<h3 style="font-size:15px;margin:22px 0 8px">Fornecedores</h3>`)
-		b.WriteString(`<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:14px">`)
 		for _, f := range fornecedores {
-			fmt.Fprintf(&b, `<tr>
-<td style="padding:9px 0;border-bottom:1px solid #eef1f0">%s
-  <div style="color:#667;font-size:12.5px;margin-top:2px">%d clientes ativos · %d%% positivados</div></td>
-<td style="padding:9px 0;border-bottom:1px solid #eef1f0;text-align:right;white-space:nowrap;font-weight:bold;color:%s">%s (%d%%)</td>
-</tr>`, escHTML(f.NomeFornec), f.ClientesAtivos, f.PctPosAtual, corPct(f.PctVenda), brlValor(f.VendaAtual), f.PctVenda)
+			largura := 0
+			if maiorVenda > 0 {
+				largura = int(f.VendaAtual / maiorVenda * 100)
+			}
+			fmt.Fprintf(&b, `<div style="margin-bottom:12px">
+<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px">
+  <span>%s</span>
+  <span style="font-weight:bold;color:%s">%s (%d%%)</span>
+</div>
+<div style="background:#eef1f0;border-radius:3px;height:6px;overflow:hidden">
+  <div style="background:#1B6660;width:%d%%;height:100%%"></div>
+</div></div>`, escHTML(f.NomeFornec), corPct(f.PctVenda), brlValor(f.VendaAtual), f.PctVenda, largura)
 		}
-		b.WriteString(`</table>`)
 	}
 
 	b.WriteString(`<hr style="border:0;border-top:1px solid #e3e6e5;margin:26px 0 12px">
-<p style="color:#889;font-size:12px;line-height:1.6;margin:0">Percentual = venda atual ÷ venda do ano anterior. ≥100% verde, ≥80% âmbar, ≥70% laranja, abaixo vermelho.</p></div>`)
+<p style="color:#889;font-size:12px;line-height:1.6;margin:0">Venda líquida, mesmo recorte de meses nos dois anos. Percentual = venda atual ÷ venda do ano anterior. ≥100% verde, ≥80% âmbar, ≥70% laranja, abaixo vermelho.</p></div>`)
 
 	htmlBody = b.String()
 

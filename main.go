@@ -35,17 +35,18 @@ type Resumo struct {
 	AtualizadoEm  string `json:"atualizado_em,omitempty"`
 }
 
+// FornecedorRow só traz venda (faturamento) — a única métrica do
+// agregado mensal que é somável de verdade e bate com o FAROL pro
+// mesmo período (ver histórico em positivacaoQuery removida em
+// 17/09/2026: positivados/base_cli/mix são fotos DO MÊS, não somáveis,
+// e reproduzir a definição exata do FAROL pra elas era um projeto à
+// parte — decisão foi não mostrar número que não bate).
 type FornecedorRow struct {
-	CodFornec      string  `json:"cod_fornec"`
-	NomeFornec     string  `json:"nome_fornec"`
-	VendaAnterior  float64 `json:"venda_anterior"`
-	VendaAtual     float64 `json:"venda_atual"`
-	PctVenda       int     `json:"pct_venda"`
-	ClientesAtivos int     `json:"clientes_ativos"`
-	PositAnterior  int     `json:"posit_anterior"`
-	PositAtual     int     `json:"posit_atual"`
-	PctPosAtual    int     `json:"pct_pos_atual"`
-	MixMedio       float64 `json:"mix_medio"`
+	CodFornec     string  `json:"cod_fornec"`
+	NomeFornec    string  `json:"nome_fornec"`
+	VendaAnterior float64 `json:"venda_anterior"`
+	VendaAtual    float64 `json:"venda_atual"`
+	PctVenda      int     `json:"pct_venda"`
 }
 
 type FaturadoResp struct {
@@ -125,26 +126,24 @@ SELECT
 FROM risco;
 `
 
-// faturadoFornecedorQuery só traz as métricas SOMÁVEIS entre meses
-// (liquido, mix) — bounded por mes <= $5 pros dois anos, senão o ano
-// anterior (já fechado) soma os 12 meses contra só os meses já
-// decorridos do ano atual (achado 17/09/2026: "período anterior
-// completo" inflava a venda/base de comparação sem avisar).
+// faturadoFornecedorQuery só traz venda (liquido, a única métrica
+// somável entre meses no agregado — ver zai_farol.go "NÃO SOMÁVEL"
+// pra positivados/base_cli/mix). Bounded por mes <= $5 pros dois anos,
+// senão o ano anterior (já fechado) soma os 12 meses contra só os
+// meses já decorridos do ano atual (achado 17/09/2026: "período
+// anterior completo" inflava a venda sem avisar).
 //
-// positivados/base_cli NÃO entram aqui: são fotos DO MÊS (ver
-// zai_farol.go, "NÃO SOMÁVEL"), somar 12 linhas conta o mesmo cliente
-// uma vez por mês E por fornecedor — é o que explicava Positivação
-// Atual = 3,1 milhões e Base Ativa = 224 mil no /painel (real: base
-// ~47 mil, positivação ~39 mil, batendo com o FAROL). Essas duas
-// métricas vêm de positivacaoQuery, direto de vendas_faturadas/
-// vendas_transmitidas com COUNT(DISTINCT cnpj).
+// Positivação/Base Ativa/Mix Médio foram removidos de propósito
+// (17/09/2026): a definição exata que bate com o FAROL pra essas três
+// (rolling 12M, distinct count por período, ver farol_v2_api.go) é um
+// projeto à parte — decisão foi mostrar só o que dá pra garantir que
+// bate, em vez de uma aproximação que pode divergir.
 const faturadoFornecedorQuery = `
 WITH ant AS (
     SELECT
         cod_fornec,
         MAX(nome_fornec)                       AS nome_fornec,
-        SUM(liquido)                           AS venda_anterior,
-        ROUND(AVG(NULLIF(mix,0))::numeric, 1)  AS mix_medio
+        SUM(liquido)                           AS venda_anterior
     FROM farol.agg_fat_v01_l0_mes
     WHERE empresa_id = $1::uuid AND ano = $2 AND mes <= $5
     GROUP BY cod_fornec
@@ -153,8 +152,7 @@ atu AS (
     SELECT
         cod_fornec,
         MAX(nome_fornec)                       AS nome_fornec,
-        SUM(liquido)                           AS venda_atual,
-        ROUND(AVG(NULLIF(mix,0))::numeric, 1)  AS mix_medio
+        SUM(liquido)                           AS venda_atual
     FROM farol.agg_fat_v01_l0_mes
     WHERE empresa_id = $1::uuid AND ano = $3 AND mes <= $5
     GROUP BY cod_fornec
@@ -166,40 +164,11 @@ SELECT
     COALESCE(b.venda_atual,    0)                              AS venda_atual,
     CASE WHEN COALESCE(a.venda_anterior, 0) > 0
          THEN ROUND((COALESCE(b.venda_atual,0)/a.venda_anterior*100)::numeric,0)::int
-         ELSE 0 END                                            AS pct_venda,
-    COALESCE(b.mix_medio, a.mix_medio, 0)                     AS mix_medio
+         ELSE 0 END                                            AS pct_venda
 FROM ant a
 FULL OUTER JOIN atu b USING (cod_fornec)
 ORDER BY venda_atual DESC NULLS LAST
 LIMIT $4
-`
-
-// positivacaoQuery calcula positivação (clientes distintos que
-// compraram) e base ativa direto das tabelas cruas, por fornecedor e
-// pro total (GROUPING SETS evita escanear 2x). "Base Ativa" aqui é
-// definida como clientes distintos com movimento no período ATUAL
-// (compartilhada entre todas as linhas, mesmo comportamento visto no
-// próprio FAROL) — é uma aproximação razoável, não é bit-a-bit igual
-// ao "rolling 12 meses" que o FAROL usa internamente (farol_v2_api.go),
-// mas elimina o double-counting sem reimplementar aquela lógica aqui.
-const positivacaoQuery = `
-WITH movimento AS (
-    SELECT v.cnpj, v.cod_fornec, v.data_faturamento AS data_evento
-    FROM vendas_faturadas v
-    WHERE v.qt > 0 AND v.empresa_id = $1::uuid AND v.cod_fornec <> ''
-      AND v.data_faturamento BETWEEN $2::date AND $5::date
-    UNION ALL
-    SELECT v.cnpj, v.cod_fornec, v.data_transmissao AS data_evento
-    FROM vendas_transmitidas v
-    WHERE v.qt > 0 AND v.empresa_id = $1::uuid AND v.cod_fornec <> ''
-      AND v.data_transmissao BETWEEN $2::date AND $5::date
-)
-SELECT
-    COALESCE(cod_fornec, '') AS cod_fornec,
-    COUNT(DISTINCT cnpj) FILTER (WHERE data_evento BETWEEN $2::date AND $3::date) AS posit_anterior,
-    COUNT(DISTINCT cnpj) FILTER (WHERE data_evento BETWEEN $4::date AND $5::date) AS posit_atual
-FROM movimento
-GROUP BY GROUPING SETS ((cod_fornec), ())
 `
 
 func withCORS(next http.HandlerFunc) http.HandlerFunc {
@@ -337,11 +306,8 @@ func coberturaEmailHandler(w http.ResponseWriter, r *http.Request) {
 //
 // mesLimite bound os dois anos no mesmo número de meses decorridos —
 // sem isso o ano anterior (já fechado) somava os 12 meses contra só os
-// meses já decorridos do ano atual (achado 17/09/2026). iniAnt/fimAnt/
-// iniAtu/fimAtu são os mesmos recortes em data exata (dia-a-dia),
-// usados só pela positivacaoQuery — o agregado mensal (venda) não tem
-// granularidade de dia, mas as tabelas cruas têm.
-func resolverAnosELimit(r *http.Request) (anoAnterior, anoAtual, mesLimite, limit int, iniAnt, fimAnt, iniAtu, fimAtu time.Time) {
+// meses já decorridos do ano atual (achado 17/09/2026).
+func resolverAnosELimit(r *http.Request) (anoAnterior, anoAtual, mesLimite, limit int) {
 	hoje := time.Now()
 	anoAtual = hoje.Year()
 	anoAnterior = anoAtual - 1
@@ -357,108 +323,43 @@ func resolverAnosELimit(r *http.Request) (anoAnterior, anoAtual, mesLimite, limi
 	}
 	mesLimite = int(hoje.Month())
 	limit = limiteDaQuery(r, 200, 100_000)
-
-	iniAtu = time.Date(anoAtual, 1, 1, 0, 0, 0, 0, time.UTC)
-	fimAtu = time.Date(anoAtual, hoje.Month(), hoje.Day(), 0, 0, 0, 0, time.UTC)
-	iniAnt = time.Date(anoAnterior, 1, 1, 0, 0, 0, 0, time.UTC)
-	fimAnt = time.Date(anoAnterior, hoje.Month(), hoje.Day(), 0, 0, 0, 0, time.UTC)
 	return
 }
 
-func buscarFaturadoFornecedor(ctx context.Context, anoAnterior, anoAtual, mesLimite, limit int, iniAnt, fimAnt, iniAtu, fimAtu time.Time) (FaturadoResp, error) {
+func buscarFaturadoFornecedor(ctx context.Context, anoAnterior, anoAtual, mesLimite, limit int) (FaturadoResp, error) {
 	rows, err := pool.Query(ctx, faturadoFornecedorQuery, empresaJC, anoAnterior, anoAtual, limit, mesLimite)
 	if err != nil {
 		return FaturadoResp{}, err
 	}
 	defer rows.Close()
-	fornecedorPorCod := map[string]*FornecedorRow{}
-	var ordem []string
+	var fornecedores []FornecedorRow
 	for rows.Next() {
-		f := &FornecedorRow{}
+		var f FornecedorRow
 		if err := rows.Scan(
 			&f.CodFornec, &f.NomeFornec,
 			&f.VendaAnterior, &f.VendaAtual, &f.PctVenda,
-			&f.MixMedio,
 		); err != nil {
 			log.Println("faturado scan error:", err)
 			continue
 		}
-		fornecedorPorCod[f.CodFornec] = f
-		ordem = append(ordem, f.CodFornec)
+		fornecedores = append(fornecedores, f)
 	}
 	if err := rows.Err(); err != nil {
 		return FaturadoResp{}, err
 	}
-
-	// positivação/base ativa vêm de uma query separada (distinct count
-	// nas tabelas cruas) — nunca soma/máx dos agregados mensais, ver
-	// comentário de positivacaoQuery.
-	positRows, err := pool.Query(ctx, positivacaoQuery, empresaJC, iniAnt, fimAnt, iniAtu, fimAtu)
-	if err != nil {
-		return FaturadoResp{}, err
-	}
-	defer positRows.Close()
-	var totalPositAnterior, totalPositAtual int
-	for positRows.Next() {
-		var codFornec string
-		var positAnterior, positAtual int
-		if err := positRows.Scan(&codFornec, &positAnterior, &positAtual); err != nil {
-			log.Println("positivacao scan error:", err)
-			continue
-		}
-		if codFornec == "" {
-			// linha do GROUPING SETS () — total geral, não um fornecedor.
-			totalPositAnterior, totalPositAtual = positAnterior, positAtual
-			continue
-		}
-		if f, ok := fornecedorPorCod[codFornec]; ok {
-			f.PositAnterior, f.PositAtual = positAnterior, positAtual
-		}
-	}
-	if err := positRows.Err(); err != nil {
-		return FaturadoResp{}, err
-	}
-
-	// Base ativa é compartilhada entre todas as linhas (mesma definição
-	// que o próprio FAROL mostra nessa tela: um denominador só, não um
-	// recorte por fornecedor).
-	for _, codFornec := range ordem {
-		f := fornecedorPorCod[codFornec]
-		f.ClientesAtivos = totalPositAtual
-		if totalPositAtual > 0 {
-			f.PctPosAtual = int(math.Round(float64(f.PositAtual) / float64(totalPositAtual) * 100))
-		}
-	}
-
-	fornecedores := make([]FornecedorRow, 0, len(ordem))
-	for _, codFornec := range ordem {
-		fornecedores = append(fornecedores, *fornecedorPorCod[codFornec])
+	if fornecedores == nil {
+		fornecedores = []FornecedorRow{}
 	}
 
 	var total FornecedorRow
 	total.CodFornec = "TOTAL"
 	total.NomeFornec = "TOTAL"
-	total.ClientesAtivos = totalPositAtual
-	total.PositAnterior = totalPositAnterior
-	total.PositAtual = totalPositAtual
-	var mixSum float64
-	var mixCount int
 	for _, f := range fornecedores {
 		total.VendaAnterior += f.VendaAnterior
 		total.VendaAtual += f.VendaAtual
-		if f.MixMedio > 0 {
-			mixSum += f.MixMedio
-			mixCount++
-		}
 	}
 	if total.VendaAnterior > 0 {
 		total.PctVenda = int(math.Round(total.VendaAtual / total.VendaAnterior * 100))
-	}
-	if totalPositAtual > 0 {
-		total.PctPosAtual = int(math.Round(float64(total.PositAtual) / float64(totalPositAtual) * 100))
-	}
-	if mixCount > 0 {
-		total.MixMedio = math.Round(mixSum/float64(mixCount)*10) / 10
 	}
 	return FaturadoResp{
 		AnoAnterior:  anoAnterior,
@@ -473,8 +374,8 @@ func faturadoFornecedorHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	anoAnterior, anoAtual, mesLimite, limit, iniAnt, fimAnt, iniAtu, fimAtu := resolverAnosELimit(r)
-	resp, err := buscarFaturadoFornecedor(context.Background(), anoAnterior, anoAtual, mesLimite, limit, iniAnt, fimAnt, iniAtu, fimAtu)
+	anoAnterior, anoAtual, mesLimite, limit := resolverAnosELimit(r)
+	resp, err := buscarFaturadoFornecedor(context.Background(), anoAnterior, anoAtual, mesLimite, limit)
 	if err != nil {
 		log.Println("faturado-fornecedor query error:", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -496,8 +397,8 @@ func faturadoFornecedorEmailHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONErro(w, http.StatusBadRequest, "parâmetro obrigatório: email")
 		return
 	}
-	anoAnterior, anoAtual, mesLimite, _, iniAnt, fimAnt, iniAtu, fimAtu := resolverAnosELimit(r)
-	resp, err := buscarFaturadoFornecedor(context.Background(), anoAnterior, anoAtual, mesLimite, 100_000, iniAnt, fimAnt, iniAtu, fimAtu)
+	anoAnterior, anoAtual, mesLimite, _ := resolverAnosELimit(r)
+	resp, err := buscarFaturadoFornecedor(context.Background(), anoAnterior, anoAtual, mesLimite, 100_000)
 	if err != nil {
 		log.Println("faturado-fornecedor query error:", err)
 		writeJSONErro(w, http.StatusInternalServerError, "erro buscando faturado por fornecedor")

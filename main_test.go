@@ -28,7 +28,7 @@ func TestLimiteDaQuery(t *testing.T) {
 
 func TestResolverAnosELimitPadrao(t *testing.T) {
 	r := httptest.NewRequest("GET", "/x", nil)
-	anoAnterior, anoAtual, mesLimite, limit, iniAnt, fimAnt, iniAtu, fimAtu := resolverAnosELimit(r)
+	anoAnterior, anoAtual, mesLimite, limit := resolverAnosELimit(r)
 	if anoAtual-anoAnterior != 1 {
 		t.Errorf("ano_atual - ano_anterior = %d, want 1", anoAtual-anoAnterior)
 	}
@@ -38,20 +38,11 @@ func TestResolverAnosELimitPadrao(t *testing.T) {
 	if mesLimite < 1 || mesLimite > 12 {
 		t.Errorf("mesLimite = %d, want 1..12", mesLimite)
 	}
-	// anterior e atual precisam cobrir o mesmo número de dias corridos
-	// (mesmo dia/mês, anos diferentes) — é a correção do bug de período
-	// (ano fechado x ano parcial) achado em 17/09/2026.
-	if fimAnt.Month() != fimAtu.Month() || fimAnt.Day() != fimAtu.Day() {
-		t.Errorf("fim do período anterior (%v) não casa com o do atual (%v)", fimAnt, fimAtu)
-	}
-	if iniAnt.Month() != 1 || iniAnt.Day() != 1 || iniAtu.Month() != 1 || iniAtu.Day() != 1 {
-		t.Errorf("os dois períodos deveriam começar em 1º de janeiro")
-	}
 }
 
 func TestResolverAnosELimitExplicito(t *testing.T) {
 	r := httptest.NewRequest("GET", "/x?ano_anterior=2024&ano_atual=2026&all=true", nil)
-	anoAnterior, anoAtual, _, limit, _, _, _, _ := resolverAnosELimit(r)
+	anoAnterior, anoAtual, _, limit := resolverAnosELimit(r)
 	if anoAnterior != 2024 || anoAtual != 2026 {
 		t.Errorf("anos = %d,%d, want 2024,2026", anoAnterior, anoAtual)
 	}
