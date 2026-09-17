@@ -81,3 +81,33 @@ func (c *farolClient) enviarObjetivosIndustriaEmail(industria, periodo, fluxo, e
 	}
 	return out, nil
 }
+
+// industrias/objetivosIndustria/comparativoFechamento — proxy puro
+// (status+corpo crus) pras rotas de leitura do FB_FAROL, migradas pra cá
+// em 17/09/2026 (plano combinado de 16/09: FB_CEREBRO vira o único
+// gateway que os agentes de IA chamam — AD-2 da espinha — em vez de
+// FAROL_MCP_TOKEN espalhado em cada agente). Devolve o corpo exatamente
+// como o FAROL respondeu (inclusive em erro), sem reformatar — quem
+// decide o formato de erro é o FAROL, este serviço só repassa.
+func (c *farolClient) industrias() (status int, body []byte, err error) {
+	return proxyGet(c.http, c.baseURL+"/api/farol-jc/industrias", "Authorization", "Bearer "+c.token)
+}
+
+func (c *farolClient) objetivosIndustria(industria, periodo, fluxo string) (status int, body []byte, err error) {
+	q := url.Values{}
+	q.Set("industria", industria)
+	q.Set("periodo", periodo)
+	if fluxo != "" {
+		q.Set("fluxo", fluxo)
+	}
+	reqURL := c.baseURL + "/api/farol-jc/objetivos-industria?" + q.Encode()
+	return proxyGet(c.http, reqURL, "Authorization", "Bearer "+c.token)
+}
+
+func (c *farolClient) comparativoFechamento(industria, periodo string) (status int, body []byte, err error) {
+	q := url.Values{}
+	q.Set("industria", industria)
+	q.Set("periodo", periodo)
+	reqURL := c.baseURL + "/api/farol-jc/comparativo-fechamento?" + q.Encode()
+	return proxyGet(c.http, reqURL, "Authorization", "Bearer "+c.token)
+}

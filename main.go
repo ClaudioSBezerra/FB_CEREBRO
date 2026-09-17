@@ -456,6 +456,99 @@ func objetivosIndustriaEmailHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+// escreverProxy repassa status+corpo crus do módulo de origem — usado
+// pelas 4 rotas de proxy abaixo (industrias, objetivos-industria,
+// comparativo-fechamento, historico-calibragem). Nunca reformata o
+// corpo: se o módulo de origem errou, o erro dele chega intacto.
+func escreverProxy(w http.ResponseWriter, status int, body []byte, proxyErr error) {
+	if proxyErr != nil {
+		writeJSONErro(w, http.StatusBadGateway, proxyErr.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(body)
+}
+
+// industriasHandler / objetivosIndustriaHandler / comparativoFechamentoHandler
+// — proxy puro pro FB_FAROL. Migrados pra cá em 17/09/2026 (plano de
+// 16/09: FB_CEREBRO vira o único gateway — AD-2 da espinha — em vez de
+// cada agente ter o FAROL_MCP_TOKEN próprio).
+func industriasHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	client, err := newFarolClient()
+	if err != nil {
+		writeJSONErro(w, http.StatusInternalServerError, "FAROL_GATEWAY_TOKEN não configurado neste serviço")
+		return
+	}
+	status, body, err := client.industrias()
+	escreverProxy(w, status, body, err)
+}
+
+func objetivosIndustriaHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	q := r.URL.Query()
+	industria, periodo := q.Get("industria"), q.Get("periodo")
+	if industria == "" || periodo == "" {
+		writeJSONErro(w, http.StatusBadRequest, "parâmetros obrigatórios: industria, periodo")
+		return
+	}
+	client, err := newFarolClient()
+	if err != nil {
+		writeJSONErro(w, http.StatusInternalServerError, "FAROL_GATEWAY_TOKEN não configurado neste serviço")
+		return
+	}
+	status, body, err := client.objetivosIndustria(industria, periodo, q.Get("fluxo"))
+	escreverProxy(w, status, body, err)
+}
+
+func comparativoFechamentoHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	q := r.URL.Query()
+	industria, periodo := q.Get("industria"), q.Get("periodo")
+	if industria == "" || periodo == "" {
+		writeJSONErro(w, http.StatusBadRequest, "parâmetros obrigatórios: industria, periodo")
+		return
+	}
+	client, err := newFarolClient()
+	if err != nil {
+		writeJSONErro(w, http.StatusInternalServerError, "FAROL_GATEWAY_TOKEN não configurado neste serviço")
+		return
+	}
+	status, body, err := client.comparativoFechamento(industria, periodo)
+	escreverProxy(w, status, body, err)
+}
+
+// historicoCalibragemHandler — proxy puro pro FB_SMARTPICK, mesmo
+// racional acima.
+func historicoCalibragemHandler(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	cdID := r.URL.Query().Get("cd_id")
+	if cdID == "" {
+		writeJSONErro(w, http.StatusBadRequest, "parâmetro obrigatório: cd_id")
+		return
+	}
+	client, err := newSmartPickClient()
+	if err != nil {
+		writeJSONErro(w, http.StatusInternalServerError, "SMARTPICK_GATEWAY_TOKEN não configurado neste serviço")
+		return
+	}
+	status, body, err := client.historicoCalibragem(cdID, r.URL.Query().Get("ano_inicio"))
+	escreverProxy(w, status, body, err)
+}
+
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := pool.Ping(context.Background()); err != nil {
@@ -501,6 +594,10 @@ func main() {
 	http.HandleFunc("/cobertura-email", withCORS(coberturaEmailHandler))
 	http.HandleFunc("/faturado-fornecedor-email", withCORS(faturadoFornecedorEmailHandler))
 	http.HandleFunc("/objetivos-industria-email", withCORS(objetivosIndustriaEmailHandler))
+	http.HandleFunc("/industrias", withCORS(industriasHandler))
+	http.HandleFunc("/objetivos-industria", withCORS(objetivosIndustriaHandler))
+	http.HandleFunc("/comparativo-fechamento", withCORS(comparativoFechamentoHandler))
+	http.HandleFunc("/historico-calibragem", withCORS(historicoCalibragemHandler))
 	http.HandleFunc("/enviar-email", withCORS(enviarEmailHandler))
 	http.HandleFunc("/noticias-investimento", withCORS(noticiasInvestimentoHandler))
 	http.HandleFunc("/health", healthHandler)
